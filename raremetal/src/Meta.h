@@ -82,6 +82,7 @@ class Meta
 
 	static String dosageOptionFile;
 	static String pop_list_name;
+	static bool Multi; // Dajiang's multi-allelic method
 
 	//saved single variant information from pooled studies
 	StringArray scorefile;
@@ -90,11 +91,17 @@ class Meta
  	
  	std::map<String, std::map<int, std::vector<metaElement> > > variantMap; // chr-> pos->info
  	af1KG AF1KG; // for exact test
+ 	
+// 	std::map<String, std::vector<double> >multiCovsUs;
+// 	std::map<String, std::vector<String> > multiCovsAlleles;
+// 	std::map<String, Matirx> multiCovs; // store cov for meta-analysis of multi-allelic sites
+ 	std::map<String, double> multiCovs; // only consider 2 alt alleles
+	
 
   private:
 	void openMetaFiles();
 	bool poolSingleRecord( int study, double& current_chisq, int& duplicateSNP, bool adjust, String & buffer);
- 	bool calculateSinglePvalue( int position, metaElement & me);
+ 	bool calculateSinglePvalue( String& chr, int position, metaElement & me, bool multi_status=false, double u_extra);
  	bool adjustStatsForExact( metaElement& me );
  	void printSingleMetaHeader( String & filename, IFILE & output );
  	void printOutVcfHeader( String & vcf_filename, IFILE & vcfout );

@@ -63,6 +63,7 @@ double Meta::minMatchMAF = 0;
 double Meta::maxMatchMAF = 1;
 //bool Meta::popVar = false; // load summary file position first then load only these positions in 1000G
 bool Meta::NoPreloading = false;
+bool Meta::Multi = false; // Dajiang's multi-allelic method
 
 Meta::Meta( FILE * plog )
 {
@@ -144,6 +145,49 @@ void Meta::runCondAnalysis()
 	ifclose(output);
 }
 
+void screenMultiAllelicSites()
+{
+
+}
+
+// only consider 2 alt alleles
+// only store sum of covs across studies
+void Meta::loadMultiCovs()
+{
+	// pre load sites
+	for(auto p1 = variantMap.begin(); p1 != variantMap.end(); p1++) {
+		for(auto p2 = p1->second.begin(); p2!=p1->second.end();p1++) {
+			if (p2->second.size()==1)
+					continue;
+			String chr_pos = p1->first + ":" + p2->first;
+			multiCovs[chr_pos] = 0;
+		}
+	}
+	// load
+	for(int s=0;s<scorefile.Length();s++) {
+		IFILE file = ifopen(covFiles[s],"r");
+		while(!ifeof(file)) {
+			String buffer;
+			buffer.ReadLine(file);
+			StringArray tokens;
+			tokens.AddTokens(buffer,'\t');
+			if(tokens[0].Find("chr")!=-1)
+				tokens[0] = tokens[0].SubStr(3);
+			chr_pos = tokens[0] + ":" + tokens[1];
+			auto p = multiCovs.find(chr_pos);
+			if (p==multiCovs.end())
+				continue;
+			// format is: chr pos ref alt exp cov_vals
+			int e = tokens[4].AsInteger();
+			StringArray vals;
+			vals.AddTokens(tokens[5],',');
+			double v = vals[1].AsDouble();
+			double v2 = v*v*SampleSize[s];
+			p->second += v2;
+		}
+	}
+}
+
 //this function will read through summary statistics of each study and pool the information.
 //At the end, single variant meta-analysis will be completed.
 // information will be stored for gene-based analysis
@@ -153,6 +197,17 @@ void Meta::SingleVariantMetaAnalysis()
 		CondAna.Initialize( scorefile.Length() );
 		CondAna.SetCondMarkers( cond );
 	}
+	// check if pre-loading of multi-allelic sites is necessary
+	if (Multi) {
+		printf("For the new method in multi-allelic sites, pre-loading these sites and their covariance...\n")
+		for(int s=0;s<scorefile.Length();s++) {
+			screenMultiAllelicSites();
+		}
+		for(int s=0;s<scorefile.Length();s++)
+			loadMultiCovs(covFiles[s]);
+		printf("  done\n");
+	}
+
 	// pool summary stats by reading
 	for(int study=0;study<scorefile.Length();study++) {
 		printf("Pooling summary statistics from study %d ...\n",study+1);
@@ -250,11 +305,24 @@ void Meta::CalculateMetaPvalues()
 	Vector pvalue_001;
 	Vector pvalue_005;
 
+	if (Multi)
+		loadMultiCovs();
+
 	for(std::map<String, std::map<int, std::vector<metaElement> > >::iterator p1=variantMap.begin();p1!=variantMap.end();p1++) {
 		for(std::map<int, std::vector<metaElement> >::iterator p2=p1->second.begin();p2!=p1->second.end();p2++) {
 			for(int i=0;i<p2->second.size();i++) {
 				double minor_maf = getMinorMAF(p2->second[i]);
-				bool status = calculateSinglePvalue( p2->first, p2->second[i]);
+				bool status
+				if (Multi && p2->second.size() != 1) {
+					double u_extra;
+					if (i==0)
+						u_extra = p2->second[1].U;
+					else
+						u_extra = p2->second[0].U;
+					status = calculateSinglePvalue( p1->first, p2->first, p2->second[i], true, u_extra);
+				}
+				else
+					status = calculateSinglePvalue( p1->first, p2->first, p2->second[i], false, -1);
 				if (status) {
 					plot_chrs.Push(p1->first);
 					plot_positions.Push(p2->first);
@@ -381,7 +449,7 @@ void Meta::ExactNormPop()
 	}
 }
 
-bool Meta::calculateSinglePvalue( int position, metaElement & me)
+bool Meta::calculateSinglePvalue( String& chr, int position, metaElement & me, bool multi_status=false, double u_extra)
 {
 	// monomorphic
 	if (me.AC==0 || me.AC==me.N*2)
@@ -390,6 +458,18 @@ bool Meta::calculateSinglePvalue( int position, metaElement & me)
 	// exact method
 	if (useExactMetaMethod)
 		bool status = adjustStatsForExact(me);
+
+	// multi-allelic adjustment
+	// with only 1 extra allele, it shrinks to:
+	// U_m_m' = U_m - U_m'
+	// V_m_m' = V_m_m - V_m_m'
+	if (multi_status) {
+		String chr_pos = chr + ":" + position;
+		double u_extra = 
+		double v2_extra = multiCovs[chr_pos];
+		me.U -= u_extra;
+		me.V2 -= v2_extra;
+	}
 
 	// now compute
 	if (me.V2==0)
@@ -932,6 +1012,9 @@ bool Meta::poolSingleRecord( int study, double& current_chisq, int& duplicateSNP
 			new_u *= Ysigma2[study];
 			new_v2 *= Ysigma2[study];
 		}
+//		if (Multi) {
+//			UVadjustForMulti(new_u, new_v2, chr_pos, tokens[4]);
+//		}
 		vp->second[mindex].U += new_u;
 		vp->second[mindex].V2 += new_v2;
 	}
@@ -952,6 +1035,37 @@ bool Meta::poolSingleRecord( int study, double& current_chisq, int& duplicateSNP
 	}
 	return true;
 }
+
+/* correct U and V for multi-allelic sites
+// U_m_m` = U_m - V_m_m' * (V_m_m')^-1 * U_m'
+// V_m_m' = V_m_m - V_m_m' * (V_m_m')^-1 * V_m'_m
+// with only 1 extra allele, it shrinks to:
+// U_m_m' = U_m - U_m'
+// V_m_m' = V_m_m - V_m_m'
+void Meta::UVadjustForMulti(double& u, double& v2, String chr_pos, String& alt)
+{
+	std::map<String, Matirx> multiCovs; 
+	auto p = multiCovs.find(chr_pos);
+	if (p==multiCovs.end())
+		return;
+	// now begin
+	auto p2 = multiCovsAlleles.find(chr_pos);
+	auto pa = &(p2->second);
+	int idx = -1;
+	for(int a=0;a<(*pa)[a];a++) {
+		if ((*pa)[a] == alt) {
+			idx = a;
+			break;
+		}
+	}
+	if (pa->size()==2) { // only 2 alternative alleles, shrink
+
+	}
+	else {
+
+	}
+}
+*/
 
 void Meta::printSingleMetaHeader( String & filename, IFILE & output )
 {
@@ -1129,487 +1243,6 @@ void Meta::plotSingleMetaGC( IFILE & output, bool calc_gc )
 
 /****************************************************************************************/
 /*
-void Meta::VTassoc( GroupFromAnnotation & group )
-{
-	printf("Performing Variable Threshold tests ...\n");
-	//calculate final results here
-	Vector pvalue_VT,pos_plot,cond_pvalue_VT;
-	StringArray chr_plot,geneLabels;
-	
-	IFILE output;
-	String filename;
-	String method = "VT_";
-	openMetaResultFile( prefix, filename, output, method );
-	
-	method += MAF_cutoff;
-	IFILE reportOutput;
-	if(report)
-	{
-		String reportFile;
-		if(prefix =="")
-		reportFile = "meta.tophits.VT.tbl";
-		else if(prefix.Last()=='.' || prefix.Last()=='/')
-		reportFile = prefix +  "meta.tophits.VT.tbl";
-		else
-			reportFile = prefix + ".meta.tophits.VT.tbl";
-		reportOutput=ifopen(reportFile,"w",InputFile::UNCOMPRESSED);
-		ifprintf(reportOutput,"GENE\tMETHOD\tGENE_PVALUE\tMAF_CUTOFF\tACTUAL_CUTOFF\tVARS\tMAFS\tEFFSIZES\tPVALUES\n");
-	}
-	
-	ifprintf(output,"##Method=VT\n");
-	ifprintf(output,"##STUDY_NUM=%d\n",scorefile.Length());
-	ifprintf(output,"##TotalSampleSize=%d\n",total_N);
-	if(fullResult)
-		ifprintf(output,"#GROUPNAME\tNUM_VAR\tVARs\tMAFs\tSINGLEVAR_EFFECTs\tSINGLEVAR_PVALUEs\tAVG_AF\tMIN_AF\tMAX_AF\tEFFECT_SIZE\tMAF_CUTOFF\tPVALUE\t");
-	else
-		ifprintf(output,"#GROUPNAME\tNUM_VAR\tVARs\tAVG_AF\tMIN_AF\tMAX_AF\tEFFECT_SIZE\tMAF_CUTOFF\tPVALUE\t");
-	
-	if(cond!="")
-		ifprintf(output,"EFFECT_SIZE\tMAF_CUTOFF\tCOND_PVALUE\n");
-	else
-		ifprintf(output,"\n");
-	
-	for(int g=0;g<group.annoGroups.Length();g++)
-	{
-		if(g>1 && g%1000==1)
-		printf("Finished analyzing %d genes.\n",g-1);
-		
-		if(maf[g].Length()==0)
-		continue;
-		
-		if(maf[g].Length()==1)
-		{
-			if(fullResult)
-				ifprintf(output,"%s\t1\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t",group.annoGroups[g].c_str(),group.SNPlist[g][0].c_str(),maf[g][0],singleEffSize[g][0],singlePvalue[g][0],maf[g][0],maf[g][0],maf[g][0],singleEffSize[g][0],maf[g][0],singlePvalue[g][0]);
-			else
-				ifprintf(output,"%s\t1\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t",group.annoGroups[g].c_str(),group.SNPlist[g][0].c_str(),maf[g][0],maf[g][0],maf[g][0],singleEffSize[g][0],maf[g][0],singlePvalue[g][0]);
-			pvalue_VT.Push(singlePvalue[g][0]);
-			
-			if(cond!="")
-			{
-				String SNPname_noallele;
-				StringArray tmp;
-				tmp.AddTokens(group.SNPlist[g][0],":");
-				SNPname_noallele=tmp[0]+":"+tmp[1];
-				double cond_pvalue_=_NAN_,cond_U=_NAN_,cond_V=_NAN_,chisq=_NAN_,cond_effSize_=_NAN_;
-				bool disect=false;
-				if(conditionVar.Integer(SNPname_noallele)==-1)
-				{
-					cond_U = SNPstat_cond.Double(SNPname_noallele);
-					cond_V = SNP_Vstat_cond.Double(SNPname_noallele);
-					chisq = cond_U*cond_U/cond_V;
-					cond_pvalue_ = pchisq(chisq,1,0,0);
-					cond_effSize_ = cond_U/cond_V;
-					while(cond_pvalue_==0.0)
-					{
-						disect=true;
-						chisq *= 0.999;
-						cond_pvalue_ = pchisq(chisq,1,0,0);
-					}
-				}
-				else {
-					cond_effSize_=0.0;
-					cond_pvalue_ = 1.0;
-				}
-				cond_pvalue_VT.Push(cond_pvalue_);
-				ifprintf(output,"%g\t%g\t%s%g",cond_effSize_,maf[g][0],disect?"<":"",cond_pvalue_);
-			}
-			ifprintf(output,"\n");
-			StringArray tmp_SNPname;
-			tmp_SNPname.AddTokens(group.SNPlist[g][0],":");
-			chr_plot.Push(tmp_SNPname[0]);
-			pos_plot.Push(tmp_SNPname[1].AsDouble());
-			geneLabels.Push(group.annoGroups[g]);
-			continue;
-		}
-		
-		//STEP1: sort maf[g] to find # of cutoffs
-		Vector cp_maf;
-		cp_maf.Copy(maf[g]);
-		cp_maf.Sort();
-		Vector maf_cutoff;
-		maf_cutoff.Push(cp_maf[0]);
-		
-		for(int i=1;i<cp_maf.Length();i++)
-		{
-			if(cp_maf[i]>maf_cutoff[maf_cutoff.Length()-1])
-				maf_cutoff.Push(cp_maf[i]);
-		} //now unique maf cutoffs are saved in maf_cutoff.
-		double pvalue = _NAN_,cond_pvalue = _NAN_;
-		bool condition_status = false;
-		pvalue = VTassocSingle(group,maf_cutoff,reportOutput,output,g,condition_status,method);
-		if(cond!="") {
-			condition_status=true;
-			cond_pvalue = VTassocSingle(group,maf_cutoff,reportOutput,output,g,condition_status,method);
-		}
-		pvalue_VT.Push(pvalue);
-		if(cond!="")
-			cond_pvalue_VT.Push(cond_pvalue);
-		
-		StringArray tmp_SNPname;
-		tmp_SNPname.AddTokens(group.SNPlist[g][0],":");
-		chr_plot.Push(tmp_SNPname[0]);
-		pos_plot.Push(tmp_SNPname[1].AsDouble());
-		geneLabels.Push(group.annoGroups[g]);
-	}
-	
-	String name = "VT (maf<";
-	name +=  MAF_cutoff;
-	name +=  ")";
-	String extraname = "";
-	String demo="";
-	double GC = GetGenomicControlFromPvalue(pvalue_VT);
-	demo="GC=";
-	demo += GC;
-	writepdf.Draw(pdf,geneLabels,pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
-	if(cond!="")
-	{
-		name += " Conditional Analysis";
-		double GC = GetGenomicControlFromPvalue(cond_pvalue_VT);
-		demo="GC=";
-		demo += GC;
-		writepdf.Draw(pdf,geneLabels,cond_pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
-	}
-	
-	ifclose(output);
-	if(report)
-		ifclose(reportOutput);
-	printf("Done.\n\n");
-}
-
-double Meta::VTassocSingle(GroupFromAnnotation & group, Vector & maf_cutoff, IFILE reportOutput, IFILE output, int & g,bool condition,String & method)
-{
-	double pvalue=_NAN_,chosen_cutoff=_NAN_,chosen_effSize=_NAN_;
-	double numerator=0.0,denominator=0.0,t_max=_NAN_;
-	Vector weight,tmp,chosen_weight,score;
-	Matrix cov_weight;
-	weight.Dimension(maf[g].Length());
-	tmp.Dimension(group.SNPlist[g].Length());
-	cov_weight.Dimension(maf_cutoff.Length(),maf[g].Length());
-	score.Dimension(maf_cutoff.Length());
-	for(int i=0;i<maf_cutoff.Length();i++)
-	{
-		for(int w=0;w<weight.Length();w++)
-		{
-			if(maf[g][w]<=maf_cutoff[i])
-				weight[w]=1.0;
-			else
-				weight[w]=0.0;
-			cov_weight[i][w]=weight[w];
-		}
-		if(condition)
-			numerator = weight.InnerProduct(cond_stats[g]);
-		else
-			numerator = weight.InnerProduct(stats[g]);
-		for(int d=0;d<tmp.Length();d++)
-		{
-			if(condition)
-				tmp[d] = weight.InnerProduct(cond_cov[g][d]);
-			else
-				tmp[d] = weight.InnerProduct(cov[g][d]);
-		}
-		denominator = tmp.InnerProduct(weight);
-		
-		if(denominator != 0.0)
-		{
-			double t_stat = fabs(numerator/sqrt(denominator));
-			score[i]=t_stat;
-			if(t_max==_NAN_)
-			{
-				t_max = t_stat;
-				chosen_cutoff = maf_cutoff[i];
-				chosen_weight.Copy(weight);
-				chosen_effSize = numerator/denominator;
-			}
-			else
-			{
-				if(t_stat>t_max)
-				{
-					t_max = t_stat;
-					chosen_cutoff = maf_cutoff[i];
-					chosen_weight.Copy(weight);
-					chosen_effSize = numerator/denominator;
-				}
-			}
-		}
-		else
-			score[i]=0.0;
-	}
-	if(score.Max()==0.0)
-	{
-		printf("Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
-		fprintf(log,"Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
-		return pvalue;
-	}
-	Vector tmp_maf,tmp_eff,tmp_pvalue;
-	for(int i=0;i<maf[g].Length();i++)
-	{
-		if(chosen_weight[i]==1.0)
-			tmp_maf.Push(maf[g][i]);
-	}
-	for(int i=0;i<maf[g].Length();i++)
-	{
-		if(chosen_weight[i]==1.0)
-		{
-			tmp_eff.Push(singleEffSize[g][i]);
-			tmp_pvalue.Push(singlePvalue[g][i]);
-		}
-	}
-	
-	double average_af = tmp_maf.Average();
-	double min_af = tmp_maf.Min();
-	double max_af = tmp_maf.Max();
-	String var;
-	for(int i=0;i<maf[g].Length()-1;i++)
-	{
-		if(chosen_weight[i]==1.0)
-			var += group.SNPlist[g][i] + ";";
-	}
-	if(chosen_weight[maf[g].Length()-1]==1.0)
-		var += group.SNPlist[g][maf[g].Length()-1];
-	
-	//STEP3: calculate covariance matrix for (U_1 ... U_#cutoff)
-	Matrix cov_U,cov_U_tmp;
-	if(condition)
-		cov_U_tmp.Product(cov_weight,cond_cov[g]);
-	else
-		cov_U_tmp.Product(cov_weight,cov[g]);
-	Matrix cov_weight_trans;
-	cov_weight_trans.Transpose(cov_weight);
-	cov_U.Product(cov_U_tmp,cov_weight_trans); //now, cov(U) is saved in cov_U
-	//Calculate covariance matrix for (T_1 ... T_#cutoff)
-	Matrix cov_T;
-	cov_T.Dimension(cov_U.rows,cov_U.cols);
-	cov2cor(cov_U,cov_T);
-	//STEP4: calculate VT pvalue and report.
-	int cutoff = maf_cutoff.Length();
-	double * lower = new double [cutoff];
-	double * upper = new double [cutoff];
-	double * mean = new double [cutoff];
-	
-	for(int i=0;i<cutoff;i++)
-	{
-		mean[i] = 0.0;
-		lower[i] = -t_max;
-		upper[i] = t_max;
-	}
-	
-	//Use pmvnorm to calculate the asymptotic p-value
-	Vector result;
-	pmvnorm(lower,upper,mean,cov_T,false,result);
-	
-	if(result[0]==-1.0)
-	{
-		if(!condition)
-		{
-			if(cond!="")
-			{
-				if(fullResult)
-				{
-					ifprintf(output,"%s\t%d\t%s\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str());
-					
-					for(int i=0;i<tmp_maf.Length()-1;i++)
-						ifprintf(output,"%g,",tmp_maf[i]);
-					ifprintf(output,"%g\t",tmp_maf[tmp_maf.Length()-1]);
-					
-					for(int i=0;i<tmp_eff.Length()-1;i++)
-						ifprintf(output,"%g,",tmp_eff[i]);
-					ifprintf(output,"%g\t",tmp_eff[tmp_eff.Length()-1]);
-					
-					for(int i=0;i<tmp_pvalue.Length()-1;i++)
-						ifprintf(output,"%g,",tmp_pvalue[i]);
-					ifprintf(output,"%g\t",tmp_pvalue[tmp_pvalue.Length()-1]);
-					
-					ifprintf(output,"%g\t%g\t%g\t%g\t%g\tERROR:CORR_NOT_POS_SEMI_DEF\t",average_af,min_af,max_af,chosen_effSize,chosen_cutoff);
-				}
-				else
-					ifprintf(output,"%s\t%d\t%s\t%g\t%g\t%g\t%g\t%g\tERROR:CORR_NOT_POS_SEMI_DEF\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str(),average_af,min_af,max_af,chosen_effSize,chosen_cutoff);
-			}
-			else
-			{
-				ifprintf(output,"\n");
-			}
-		}
-		else
-		{
-			ifprintf(output,"%g\t%g\tERROR:CORR_NOT_POS_SEMI_DEF\n",chosen_effSize,chosen_cutoff);
-		}
-	}
-	else
-	{
-		if(1.0-result[0]==0.0)
-		{
-			//           printf("gene %s has result %g\n",group.annoGroups[g].c_str(),1.0-result[0]);
-			printf("Using Shuang's algorithm to calculate MVN pvalue for gene %s ... ",group.annoGroups[g].c_str());
-				if(maf_cutoff.Length()>20)
-			{
-				while(maf_cutoff.Length()>20)
-					maf_cutoff.Delete(0);
-				
-				double numerator,denominator,t_max=_NAN_;
-				Vector weight,tmp,chosen_weight,score;
-				Matrix cov_weight;
-				weight.Dimension(maf[g].Length());
-				tmp.Dimension(group.SNPlist[g].Length());
-				cov_weight.Dimension(maf_cutoff.Length(),maf[g].Length());
-				for(int i=0;i<maf_cutoff.Length();i++)
-				{
-					for(int w=0;w<weight.Length();w++)
-					{
-						if(maf[g][w]<=maf_cutoff[i])
-							weight[w]=1.0;
-						else
-							weight[w]=0.0;
-						cov_weight[i][w]=weight[w];
-					}
-					if(condition)
-						numerator = weight.InnerProduct(cond_stats[g]);
-					else
-						numerator = weight.InnerProduct(stats[g]);
-					
-					for(int d=0;d<tmp.Length();d++)
-					{
-						if(condition)
-							tmp[d] = weight.InnerProduct(cond_cov[g][d]);
-						else
-							tmp[d] = weight.InnerProduct(cov[g][d]);
-					}
-					denominator = tmp.InnerProduct(weight);
-					if(denominator != 0)
-					{
-						double t_stat = fabs(numerator/sqrt(denominator));
-						score.Push(t_stat);
-						if(t_max==_NAN_)
-						{
-							t_max = t_stat;
-							chosen_cutoff = maf_cutoff[i];
-							chosen_weight.Copy(weight);
-							chosen_effSize = numerator/denominator;
-						}
-						else
-						{
-							if(t_stat>t_max)
-							{
-								t_max = t_stat;
-								chosen_cutoff = maf_cutoff[i];
-								chosen_weight.Copy(weight);
-								chosen_effSize = numerator/denominator;
-							}
-						}
-					}
-					else
-						score.Push(0.0);
-				}
-				if(score.Max()==0.0)
-				{
-					printf("Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
-					fprintf(log,"Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
-					return pvalue;
-					printf("completed!\n");
-				}
-				Vector tmp_maf,tmp_eff,tmp_pvalue;
-				for(int i=0;i<maf[g].Length();i++)
-				{
-					if(chosen_weight[i]==1.0)
-						tmp_maf.Push(maf[g][i]);
-				}
-				
-				for(int i=0;i<maf[g].Length();i++)
-				{
-					if(chosen_weight[i]==1.0)
-					{
-						tmp_eff.Push(singleEffSize[g][i]);
-						tmp_pvalue.Push(singlePvalue[g][i]);
-					}
-				}
-				average_af = tmp_maf.Average();
-				min_af = tmp_maf.Min();
-				max_af = tmp_maf.Max();
-				
-				String var;
-				for(int i=0;i<maf[g].Length()-1;i++)
-				{
-					if(chosen_weight[i]==1.0)
-						var += group.SNPlist[g][i] + ";";
-				}
-				if(chosen_weight[maf[g].Length()-1]==1.0)
-					var += group.SNPlist[g][maf[g].Length()-1];
-				//STEP3: calculate covariance matrix for (U_1 ... U_#cutoff)
-				Matrix cov_U,cov_U_tmp;
-				if(condition)
-					cov_U_tmp.Product(cov_weight,cond_cov[g]);
-				else
-					cov_U_tmp.Product(cov_weight,cov[g]);
-				Matrix cov_weight_trans;
-				cov_weight_trans.Transpose(cov_weight);
-				cov_U.Product(cov_U_tmp,cov_weight_trans); //now, cov(U) is saved in cov_U
-				//Calculate covariance matrix for (T_1 ... T_#cutoff)
-				Matrix cov_T;
-				cov_T.Dimension(cov_U.rows,cov_U.cols);
-				cov2cor(cov_U,cov_T);
-				
-				pvalue = CalculateMVTPvalue(score,cov_T,t_max);
-				printf("completed!\n");
-			}
-			else
-			{
-				pvalue = CalculateMVTPvalue(score,cov_T,t_max);
-				printf("completed!\n");
-			}
-		}
-		else
-		{
-			pvalue = 1.0 - result[0];
-		}
-		
-		if((condition && cond!="") || cond=="")
-		{
-			if(pvalue <report_pvalue_cutoff && report)
-			{
-				StringArray variants;
-				variants.AddTokens(var,";");
-				for(int v=0;v<tmp_maf.Length();v++)
-					ifprintf(reportOutput,"%s\t%s\t%g\t%g\t%g\t%s\t%g\t%g\t%g\n",group.annoGroups[g].c_str(),method.c_str(),pvalue,MAF_cutoff,chosen_cutoff,variants[v].c_str(),tmp_maf[v],tmp_eff[v],tmp_pvalue[v]);
-			}
-		}
-		
-		if(cond=="" || (!condition && cond!=""))
-		{
-			if(fullResult)
-			{
-				ifprintf(output,"%s\t%d\t%s\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str());
-				
-				for(int i=0;i<tmp_maf.Length()-1;i++)
-					ifprintf(output,"%g,",tmp_maf[i]);
-				ifprintf(output,"%g\t",tmp_maf[tmp_maf.Length()-1]);
-				
-				for(int i=0;i<tmp_eff.Length()-1;i++)
-					ifprintf(output,"%g,",tmp_eff[i]);
-				ifprintf(output,"%g\t",tmp_eff[tmp_eff.Length()-1]);
-				
-				for(int i=0;i<tmp_pvalue.Length()-1;i++)
-					ifprintf(output,"%g,",tmp_pvalue[i]);
-				ifprintf(output,"%g\t",tmp_pvalue[tmp_pvalue.Length()-1]);
-				
-				ifprintf(output,"%g\t%g\t%g\t%g\t%g\t%g\t",average_af,min_af,max_af,chosen_effSize,chosen_cutoff,pvalue);
-			}
-			else
-				ifprintf(output,"%s\t%d\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str(),average_af,min_af,max_af,chosen_effSize,chosen_cutoff,pvalue);
-			if(cond=="")
-				ifprintf(output,"\n");
-		}
-		
-		if(cond!="" && condition)
-			ifprintf(output,"%g\t%g\t%g\n",chosen_effSize,chosen_cutoff,pvalue);
-		
-		if(pvalue>1.0)
-		pvalue = 1.0;
-	}
-	if(lower) delete [] lower;
-	if(upper) delete [] upper;
-	if(mean) delete [] mean;
-	return pvalue;
-}
 
 void Meta::SKATassoc( GroupFromAnnotation & group )
 {

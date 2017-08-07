@@ -675,14 +675,6 @@ void annoGroups::printGroupResult(int g, IFILE& f)
 			ifprintf(f,",");
 		ifprintf(f,"%s:%d:%s:%s", annoChrs[g][i].c_str(), annoPositions[g][i],annoRefs[g][i].c_str(), annoAlts[g][i].c_str());
 	}
-	/*
-	for(int i=0;i<annoChrs[g].size();i++) {
-		if (i==0)
-			ifprintf(f,"\t");
-		else
-			ifprintf(f,",");
-		ifprintf(f,"%g",Mafs[g][i]);
-	}*/
 	double average_af = Mafs[g].Average();
 	double min_af = Mafs[g].Min();
 	double max_af = Mafs[g].Max();
@@ -708,12 +700,363 @@ void annoGroups::printGroupResult(int g, IFILE& f)
 	ifprintf(f,"\n");
 }
 
-void annoGroups::runSKAT()
-{
 
-}
-
+// variant threshold test
 void annoGroups::runVt()
 {
+	printf("Performing Variable Threshold tests ...\n");
+	printVTheader();
+	
+	StringArray chr_plot;
+	Vector pos_plot;
+	StringArray geneLabels;
+	for(int g=0;g<annoGenes.size();g++) {
+		if (Mafs[g].Length()==0)
+			error("At #%d gene, no available MAF. Something is wrong!\n",g+1);
+		if(g>1 && g%1000==1)
+			printf("Finished analyzing %d genes.\n",g-1);
+		
+		Vector pvalue_VT;
+		if(Mafs[g].Length()==1) {
+			double chisq = groupUs[g][0]*groupUs[g][0]/groupVs[g][0];
+			double p = pchisq(chisq,1,0,0);
+			pvalue_VT.Push(p);
+			ifprintf(output,"%s\t1\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t",group.annoGroups[g].c_str(),group.SNPlist[g][0].c_str(),maf[g][0],singleEffSize[g][0],singlePvalue[g][0],maf[g][0],maf[g][0],maf[g][0],singleEffSize[g][0],maf[g][0],singlePvalue[g][0]);
+			ifprintf(output,"\n");
+		}
+		else // standard vt
+			VTassocSingle(g);
 
+		chr_plot.Push(annoChrs[g]);
+		pos_plot.Push(annoPositions[g]);
+		geneLabels.Push(annoGenes[g]);
+	}
+	
+	String name = "VT (maf<";
+	name +=  MAF_cutoff;
+	name +=  ")";
+	String extraname = "";
+	String demo="";
+	double GC = GetGenomicControlFromPvalue(pvalue_VT);
+	demo="GC=";
+	demo += GC;
+	writepdf.Draw(pdf,geneLabels,pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
+/*	if(cond!="")
+	{
+		name += " Conditional Analysis";
+		double GC = GetGenomicControlFromPvalue(cond_pvalue_VT);
+		demo="GC=";
+		demo += GC;
+		writepdf.Draw(pdf,geneLabels,cond_pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
+	}*/
+	
+	ifclose(output);
+	printf("Done.\n\n");
+}
+
+
+// vt for a single group
+double Meta::VTassocSingle(int g)
+{
+	//STEP1: sort maf[g] to find # of cutoffs
+	Vector cp_maf;
+	cp_maf.Copy(Mafs[g]);
+	cp_maf.Sort();
+	Vector maf_cutoff;
+	maf_cutoff.Push(cp_maf[0]);	
+	for(int i=1;i<cp_maf.Length();i++)
+	{
+		if(cp_maf[i]>maf_cutoff[maf_cutoff.Length()-1])
+			maf_cutoff.Push(cp_maf[i]);
+	} //now unique maf cutoffs are saved in maf_cutoff.
+	double pvalue=_NAN_,chosen_cutoff=_NAN_,chosen_effSize=_NAN_;
+	double numerator=0.0,denominator=0.0,t_max=_NAN_;
+	Vector weight,tmp,chosen_weight,score;
+	Matrix cov_weight;
+	weight.Dimension(maf[g].Length());
+	tmp.Dimension(annoChrs[g].Length());
+	cov_weight.Dimension(maf_cutoff.Length(),maf[g].Length());
+	score.Dimension(maf_cutoff.Length());
+
+	// STEP2: loop through each cutoff to find max score
+	for(int i=0;i<maf_cutoff.Length();i++) {
+		for(int w=0;w<weight.Length();w++) {
+			if(maf[g][w]<=maf_cutoff[i])
+				weight[w]=1.0;
+			else
+				weight[w]=0.0;
+			cov_weight[i][w]=weight[w];
+		}
+		numerator = weight.InnerProduct(groupUs[g]);
+		for(int d=0;d<tmp.Length();d++)
+				tmp[d] = weight.InnerProduct(Covs[g][d]);
+		denominator = tmp.InnerProduct(weight);
+		
+		if(denominator != 0.0) {
+			double t_stat = fabs(numerator/sqrt(denominator));
+			score[i]=t_stat;
+			if(t_max==_NAN_) {
+				t_max = t_stat;
+				chosen_cutoff = maf_cutoff[i];
+				chosen_weight.Copy(weight);
+				chosen_effSize = numerator/denominator;
+			}
+			else {
+				if(t_stat>t_max) {
+					t_max = t_stat;
+					chosen_cutoff = maf_cutoff[i];
+					chosen_weight.Copy(weight);
+					chosen_effSize = numerator/denominator;
+				}
+			}
+		}
+		else
+			score[i]=0.0;
+	}
+	if(score.Max()==0.0) {
+		printf("Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
+		fprintf(log,"Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
+		return pvalue;
+	}
+	Vector tmp_maf,tmp_eff,tmp_pvalue;
+	for(int i=0;i<maf[g].Length();i++) {
+		if(chosen_weight[i]==1.0)
+			tmp_maf.Push(maf[g][i]);
+	}
+	for(int i=0;i<maf[g].Length();i++) {
+		if(chosen_weight[i]==1.0)
+		{
+			tmp_eff.Push(singleEffSize[g][i]);
+			tmp_pvalue.Push(singlePvalue[g][i]);
+		}
+	}
+	
+	double average_af = tmp_maf.Average();
+	double min_af = tmp_maf.Min();
+	double max_af = tmp_maf.Max();
+	String var;
+	for(int i=0;i<maf[g].Length()-1;i++) {
+		if(chosen_weight[i]==1.0)
+			var += group.SNPlist[g][i] + ";";
+	}
+	if(chosen_weight[maf[g].Length()-1]==1.0)
+		var += group.SNPlist[g][maf[g].Length()-1];
+	
+	//STEP3: calculate covariance matrix for (U_1 ... U_#cutoff)
+	Matrix cov_U,cov_U_tmp;
+	cov_U_tmp.Product(cov_weight,cov[g]);
+	Matrix cov_weight_trans;
+	cov_weight_trans.Transpose(cov_weight);
+	cov_U.Product(cov_U_tmp,cov_weight_trans); //now, cov(U) is saved in cov_U
+	//Calculate covariance matrix for (T_1 ... T_#cutoff)
+	Matrix cov_T;
+	cov_T.Dimension(cov_U.rows,cov_U.cols);
+	cov2cor(cov_U,cov_T);
+	//STEP4: calculate VT pvalue and report.
+	int cutoff = maf_cutoff.Length();
+	double * lower = new double [cutoff];
+	double * upper = new double [cutoff];
+	double * mean = new double [cutoff];
+	
+	for(int i=0;i<cutoff;i++) {
+		mean[i] = 0.0;
+		lower[i] = -t_max;
+		upper[i] = t_max;
+	}
+	
+	//Use pmvnorm to calculate the asymptotic p-value
+	Vector result;
+	pmvnorm(lower,upper,mean,cov_T,false,result);
+	
+	if(result[0]==-1.0)
+	{
+		if(!condition)
+		{
+			ifprintf(output,"\n");
+		}
+		else
+		{
+			ifprintf(output,"%g\t%g\tERROR:CORR_NOT_POS_SEMI_DEF\n",chosen_effSize,chosen_cutoff);
+		}
+	}
+	else
+	{
+		if(1.0-result[0]==0.0)
+		{
+			//           printf("gene %s has result %g\n",group.annoGroups[g].c_str(),1.0-result[0]);
+			printf("Using Shuang's algorithm to calculate MVN pvalue for gene %s ... ",group.annoGroups[g].c_str());
+				if(maf_cutoff.Length()>20)
+			{
+				while(maf_cutoff.Length()>20)
+					maf_cutoff.Delete(0);
+				
+				double numerator,denominator,t_max=_NAN_;
+				Vector weight,tmp,chosen_weight,score;
+				Matrix cov_weight;
+				weight.Dimension(maf[g].Length());
+				tmp.Dimension(group.SNPlist[g].Length());
+				cov_weight.Dimension(maf_cutoff.Length(),maf[g].Length());
+				for(int i=0;i<maf_cutoff.Length();i++)
+				{
+					for(int w=0;w<weight.Length();w++)
+					{
+						if(maf[g][w]<=maf_cutoff[i])
+							weight[w]=1.0;
+						else
+							weight[w]=0.0;
+						cov_weight[i][w]=weight[w];
+					}
+					if(condition)
+						numerator = weight.InnerProduct(cond_stats[g]);
+					else
+						numerator = weight.InnerProduct(stats[g]);
+					
+					for(int d=0;d<tmp.Length();d++)
+							tmp[d] = weight.InnerProduct(cov[g][d]);
+					denominator = tmp.InnerProduct(weight);
+					if(denominator != 0)
+					{
+						double t_stat = fabs(numerator/sqrt(denominator));
+						score.Push(t_stat);
+						if(t_max==_NAN_)
+						{
+							t_max = t_stat;
+							chosen_cutoff = maf_cutoff[i];
+							chosen_weight.Copy(weight);
+							chosen_effSize = numerator/denominator;
+						}
+						else
+						{
+							if(t_stat>t_max)
+							{
+								t_max = t_stat;
+								chosen_cutoff = maf_cutoff[i];
+								chosen_weight.Copy(weight);
+								chosen_effSize = numerator/denominator;
+							}
+						}
+					}
+					else
+						score.Push(0.0);
+				}
+				if(score.Max()==0.0) {
+					printf("Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
+					fprintf(log,"Warning: group %s does not have qualified variants to group.\n",group.annoGroups[g].c_str());
+					return pvalue;
+					printf("completed!\n");
+				}
+				Vector tmp_maf,tmp_eff,tmp_pvalue;
+				for(int i=0;i<maf[g].Length();i++)
+				{
+					if(chosen_weight[i]==1.0)
+						tmp_maf.Push(maf[g][i]);
+				}
+				
+				for(int i=0;i<maf[g].Length();i++)
+				{
+					if(chosen_weight[i]==1.0) {
+						tmp_eff.Push(singleEffSize[g][i]);
+						tmp_pvalue.Push(singlePvalue[g][i]);
+					}
+				}
+				average_af = tmp_maf.Average();
+				min_af = tmp_maf.Min();
+				max_af = tmp_maf.Max();
+				
+				String var;
+				for(int i=0;i<maf[g].Length()-1;i++) {
+					if(chosen_weight[i]==1.0)
+						var += group.SNPlist[g][i] + ";";
+				}
+				if(chosen_weight[maf[g].Length()-1]==1.0)
+					var += group.SNPlist[g][maf[g].Length()-1];
+				//STEP3: calculate covariance matrix for (U_1 ... U_#cutoff)
+				Matrix cov_U,cov_U_tmp;
+				if(condition)
+					cov_U_tmp.Product(cov_weight,cond_cov[g]);
+				else
+					cov_U_tmp.Product(cov_weight,cov[g]);
+				Matrix cov_weight_trans;
+				cov_weight_trans.Transpose(cov_weight);
+				cov_U.Product(cov_U_tmp,cov_weight_trans); //now, cov(U) is saved in cov_U
+				//Calculate covariance matrix for (T_1 ... T_#cutoff)
+				Matrix cov_T;
+				cov_T.Dimension(cov_U.rows,cov_U.cols);
+				cov2cor(cov_U,cov_T);
+				
+				pvalue = CalculateMVTPvalue(score,cov_T,t_max);
+				printf("completed!\n");
+			}
+			else {
+				pvalue = CalculateMVTPvalue(score,cov_T,t_max);
+				printf("completed!\n");
+			}
+		}
+		else
+			pvalue = 1.0 - result[0];
+		
+		if((condition && cond!="") || cond=="")
+		{
+			if(pvalue <report_pvalue_cutoff && report)
+			{
+				StringArray variants;
+				variants.AddTokens(var,";");
+				for(int v=0;v<tmp_maf.Length();v++)
+					ifprintf(reportOutput,"%s\t%s\t%g\t%g\t%g\t%s\t%g\t%g\t%g\n",group.annoGroups[g].c_str(),method.c_str(),pvalue,MAF_cutoff,chosen_cutoff,variants[v].c_str(),tmp_maf[v],tmp_eff[v],tmp_pvalue[v]);
+			}
+		}
+		
+		if(cond=="" || (!condition && cond!=""))
+		{
+			if(fullResult)
+			{
+				ifprintf(output,"%s\t%d\t%s\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str());
+				
+				for(int i=0;i<tmp_maf.Length()-1;i++)
+					ifprintf(output,"%g,",tmp_maf[i]);
+				ifprintf(output,"%g\t",tmp_maf[tmp_maf.Length()-1]);
+				
+				for(int i=0;i<tmp_eff.Length()-1;i++)
+					ifprintf(output,"%g,",tmp_eff[i]);
+				ifprintf(output,"%g\t",tmp_eff[tmp_eff.Length()-1]);
+				
+				for(int i=0;i<tmp_pvalue.Length()-1;i++)
+					ifprintf(output,"%g,",tmp_pvalue[i]);
+				ifprintf(output,"%g\t",tmp_pvalue[tmp_pvalue.Length()-1]);
+				
+				ifprintf(output,"%g\t%g\t%g\t%g\t%g\t%g\t",average_af,min_af,max_af,chosen_effSize,chosen_cutoff,pvalue);
+			}
+			else
+				ifprintf(output,"%s\t%d\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t",group.annoGroups[g].c_str(),tmp_maf.Length(),var.c_str(),average_af,min_af,max_af,chosen_effSize,chosen_cutoff,pvalue);
+			if(cond=="")
+				ifprintf(output,"\n");
+		}
+		
+		if(cond!="" && condition)
+			ifprintf(output,"%g\t%g\t%g\n",chosen_effSize,chosen_cutoff,pvalue);
+		
+		if(pvalue>1.0)
+		pvalue = 1.0;
+	}
+	if(lower) delete [] lower;
+	if(upper) delete [] upper;
+	if(mean) delete [] mean;
+	return pvalue;
+}
+
+
+void annoGroups::printVTheader(IFILE& output)
+{
+	ifprintf(output,"##Method=VT\n");
+	ifprintf(output,"##STUDY_NUM=%d\n",scorefile.Length());
+	ifprintf(output,"##TotalSampleSize=%d\n",total_N);
+	if(fullResult)
+		ifprintf(output,"#GROUPNAME\tNUM_VAR\tVARs\tMAFs\tSINGLEVAR_EFFECTs\tSINGLEVAR_PVALUEs\tAVG_AF\tMIN_AF\tMAX_AF\tEFFECT_SIZE\tMAF_CUTOFF\tPVALUE\t");
+	else
+		ifprintf(output,"#GROUPNAME\tNUM_VAR\tVARs\tAVG_AF\tMIN_AF\tMAX_AF\tEFFECT_SIZE\tMAF_CUTOFF\tPVALUE\t");
+	
+	if(cond!="")
+		ifprintf(output,"EFFECT_SIZE\tMAF_CUTOFF\tCOND_PVALUE\n");
+	else
+		ifprintf(output,"\n");
 }
