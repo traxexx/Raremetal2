@@ -1,9 +1,6 @@
 #ifndef __INITIAL_H__
 #define __INITIAL_H__
 
-#include "VcfRecord.h"
-#include "VcfFileReader.h"
-#include "VcfHeader.h"
 #include "MathMatrix.h"
 #include "StringHash.h"
 #define MATHLIB_STANDALONE
@@ -101,7 +98,7 @@ class Meta
   private:
 	void openMetaFiles();
 	bool poolSingleRecord( int study, double& current_chisq, int& duplicateSNP, bool adjust, String & buffer);
- 	bool calculateSinglePvalue( String& chr, int position, metaElement & me, bool multi_status=false, double u_extra);
+ 	bool calculateSinglePvalue( String& chr, int position, metaElement & me, double u_extra, bool multi_status);
  	bool adjustStatsForExact( metaElement& me );
  	void printSingleMetaHeader( String & filename, IFILE & output );
  	void printOutVcfHeader( String & vcf_filename, IFILE & vcfout );
@@ -111,6 +108,8 @@ class Meta
 
  	bool updateYstat( int study );
  	void updateExactCov( int s, int g, int m1, int m2);
+ 	
+ 	void loadMultiCovs();
  	
  	std::vector< std::vector<metaElement*> > groupInfos; // pointer to metaElement for single var in each group
  	void LoadGroupUandInfos();

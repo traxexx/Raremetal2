@@ -53,7 +53,7 @@ class annoGroups
 	void addNewFormatCov( int mexp,String& cov_str,StringArray& covs);
 
 	void printGroupResult(int g, IFILE& f);
-	void runVt();
+//	void runVt();
 	void runSKAT();
 	void setWeight(String& method, int g);
 	void runBurdenTest(String& method);

@@ -127,7 +127,7 @@ void condAnalysis::runSanityCheck()
 			printf("Warning: study #%d is empty. Skipped for conditional analysis!\n\n",Ns[i]+1);
 	}
 
-	// fill missing based on parameters
+	// fill missing
 	if (missing_as_zero) {
 		for(int s=0;s<study_number;s++) {
 			for(int m=0;m<marker_number;m++) {
@@ -138,6 +138,36 @@ void condAnalysis::runSanityCheck()
 						CovInvs[s][m][c] = 0;
 				}
 			}
+		}
+	}
+	else { // Dajiang's method
+		for(int m=0;m<marker_number;m++) {
+			double u_fill = _NAN_;
+			double v_fill = _NAN_;
+			for(int s=0; s<study_number;s++) {
+				if (Us[s][m]==_NAN_) {
+					if (u_fill == _NAN_) {
+						int num_valid_study = 0;
+						int u_sum = 0;
+						int v_sum = 0;
+						for(int s=0; s<study_number;s++) {
+							if (Us[s][m]!=_NAN_) {
+								num_valid_study++;
+								u_sum += Us[s][m];
+								v_sum += Vs[s][m];
+							}
+						}
+						if (num_valid_study > 0) {
+							u_fill = u_sum / (double)num_valid_study;
+							v_fill = v_sum / (double)num_valid_study;
+						}
+						else {
+							u_fill = 0;
+							v_fill = 0;
+						}
+					}
+				}
+			}	
 		}
 	}
 }

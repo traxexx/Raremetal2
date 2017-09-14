@@ -500,13 +500,14 @@ void annoGroups::MakeFullMatrix()
 // group test part
 void annoGroups::GroupTest(String& method, String& prefix)
 {
-	if (method=="VT")
+	runBurdenTest(method);
+/*	if (method=="VT")
 		runVt();
 	else if (method=="SKAT")
 		runSKAT();
 	else { // regular burden test
 		runBurdenTest(method);
-	}
+	}*/
 	String filename = prefix + ".meta." + method + ".results";
 	IFILE f = ifopen(filename,"w");
 	ifprintf(f,"#GROUP\tCOUNT\tVARIANTS\tAVR_MAF\tMIN_MAF\tMAX_MAF\tEFF_SIZE\tP_VALUE\n");
@@ -701,7 +702,7 @@ void annoGroups::printGroupResult(int g, IFILE& f)
 }
 
 
-// variant threshold test
+/* variant threshold test
 void annoGroups::runVt()
 {
 	printf("Performing Variable Threshold tests ...\n");
@@ -741,14 +742,14 @@ void annoGroups::runVt()
 	demo="GC=";
 	demo += GC;
 	writepdf.Draw(pdf,geneLabels,pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
-/*	if(cond!="")
+	if(cond!="")
 	{
 		name += " Conditional Analysis";
 		double GC = GetGenomicControlFromPvalue(cond_pvalue_VT);
 		demo="GC=";
 		demo += GC;
 		writepdf.Draw(pdf,geneLabels,cond_pvalue_VT,chr_plot,pos_plot,name,extraname,demo,true);
-	}*/
+	}
 	
 	ifclose(output);
 	printf("Done.\n\n");
@@ -1060,3 +1061,4 @@ void annoGroups::printVTheader(IFILE& output)
 	else
 		ifprintf(output,"\n");
 }
+*/

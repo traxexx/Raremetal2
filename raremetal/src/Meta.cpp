@@ -165,7 +165,8 @@ void Meta::loadMultiCovs()
 	}
 	// load
 	for(int s=0;s<scorefile.Length();s++) {
-		IFILE file = ifopen(covFiles[s],"r");
+		String cov_file_name = covfile[s];
+		IFILE file = ifopen(cov_file_name,"r");
 		while(!ifeof(file)) {
 			String buffer;
 			buffer.ReadLine(file);
@@ -173,7 +174,7 @@ void Meta::loadMultiCovs()
 			tokens.AddTokens(buffer,'\t');
 			if(tokens[0].Find("chr")!=-1)
 				tokens[0] = tokens[0].SubStr(3);
-			chr_pos = tokens[0] + ":" + tokens[1];
+			String chr_pos = tokens[0] + ":" + tokens[1];
 			auto p = multiCovs.find(chr_pos);
 			if (p==multiCovs.end())
 				continue;
@@ -196,16 +197,6 @@ void Meta::SingleVariantMetaAnalysis()
 	if (cond!="") {
 		CondAna.Initialize( scorefile.Length() );
 		CondAna.SetCondMarkers( cond );
-	}
-	// check if pre-loading of multi-allelic sites is necessary
-	if (Multi) {
-		printf("For the new method in multi-allelic sites, pre-loading these sites and their covariance...\n")
-		for(int s=0;s<scorefile.Length();s++) {
-			screenMultiAllelicSites();
-		}
-		for(int s=0;s<scorefile.Length();s++)
-			loadMultiCovs(covFiles[s]);
-		printf("  done\n");
 	}
 
 	// pool summary stats by reading
@@ -305,26 +296,29 @@ void Meta::CalculateMetaPvalues()
 	Vector pvalue_001;
 	Vector pvalue_005;
 
-	if (Multi)
+	if (Multi) {
+		printf("For the new method in multi-allelic sites, load sites covariance covariance...\n");
 		loadMultiCovs();
+	}
 
 	for(std::map<String, std::map<int, std::vector<metaElement> > >::iterator p1=variantMap.begin();p1!=variantMap.end();p1++) {
 		for(std::map<int, std::vector<metaElement> >::iterator p2=p1->second.begin();p2!=p1->second.end();p2++) {
 			for(int i=0;i<p2->second.size();i++) {
 				double minor_maf = getMinorMAF(p2->second[i]);
-				bool status
+				bool status = false;
+				String chr = p1->first;
 				if (Multi && p2->second.size() != 1) {
 					double u_extra;
 					if (i==0)
 						u_extra = p2->second[1].U;
 					else
 						u_extra = p2->second[0].U;
-					status = calculateSinglePvalue( p1->first, p2->first, p2->second[i], true, u_extra);
+					status = calculateSinglePvalue( chr, p2->first, p2->second[i], u_extra, true);
 				}
 				else
-					status = calculateSinglePvalue( p1->first, p2->first, p2->second[i], false, -1);
+					status = calculateSinglePvalue( chr, p2->first, p2->second[i], -1, false);
 				if (status) {
-					plot_chrs.Push(p1->first);
+					plot_chrs.Push(chr);
 					plot_positions.Push(p2->first);
 					pvalue_all.Push(p2->second[i].pvalue);
 					if (minor_maf<0.05)
@@ -449,7 +443,7 @@ void Meta::ExactNormPop()
 	}
 }
 
-bool Meta::calculateSinglePvalue( String& chr, int position, metaElement & me, bool multi_status=false, double u_extra)
+bool Meta::calculateSinglePvalue( String& chr, int position, metaElement & me, double u_extra, bool multi_status)
 {
 	// monomorphic
 	if (me.AC==0 || me.AC==me.N*2)
@@ -465,7 +459,13 @@ bool Meta::calculateSinglePvalue( String& chr, int position, metaElement & me, b
 	// V_m_m' = V_m_m - V_m_m'
 	if (multi_status) {
 		String chr_pos = chr + ":" + position;
-		double u_extra = 
+		double u_extra;
+		if (variantMap[chr][position][0].U == me.U) {
+			u_extra = variantMap[chr][position][1].U;
+		}
+		else {
+			u_extra = variantMap[chr][position][0].U;
+		}
 		double v2_extra = multiCovs[chr_pos];
 		me.U -= u_extra;
 		me.V2 -= v2_extra;
@@ -487,6 +487,7 @@ bool Meta::calculateSinglePvalue( String& chr, int position, metaElement & me, b
 		chisq *= 0.999;
 		me.pvalue = pchisq(chisq,1,0,0);
 	}
+	return true;
 }
 
 bool Meta::adjustStatsForExact( metaElement& me )
