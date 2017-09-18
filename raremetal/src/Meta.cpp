@@ -115,7 +115,7 @@ void Meta::ConditionalAnalysis()
 	// load covariance
 	AnnoGroups.LoadCondFile(cond);
 	for(int s=0;s<scorefile.Length();s++) {
-		AnnoGroups.LoadCovFile(scorefile[s],FormatAdjust[s],marker_col,cov_col,SampleSize[s]);
+		AnnoGroups.LoadCovFile(covfile[s],FormatAdjust[s],marker_col,cov_col,SampleSize[s]);
 		AnnoGroups.ExportCov( CondAna.Covs[s],0);
 	}
 	printf("done.\n\n");

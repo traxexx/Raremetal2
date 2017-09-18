@@ -1,4 +1,4 @@
-EXE=raremetalworkerTest
+EXE=raremetalworker
 #OMP_EXE= raremetalworker-omp
 TOOLBASE = FastFit TransformResiduals KinshipEmp OutputKin PreMeta AutoFit AutoFit2 DataQC WritePDF GroupFromAnnotation logistic
 SRCONLY = Main.cpp 
@@ -47,7 +47,7 @@ $(LIB_RAREMETAL_PATH)libRareMetal_debug.a:
 $(LIB_RAREMETAL_PATH)libRareMetal_profile.a:
 	$(MAKE) -C $(@D) --no-print-directory profile
 
-USER_COMPILE_VARS = -DVERSION="\"${VERSION}\"" -g -O0 -fstack-protector-all -static
+USER_COMPILE_VARS = -DVERSION="\"${VERSION}\"" -g -O0 -fstack-protector-all
 
 #binary: USER_COMPILE_VARS += -static
 #binary: USER_COMPILE_VARS += -lstdc++

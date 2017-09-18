@@ -9,26 +9,27 @@
 // positions: annoPositions
 // refs: annoRefs;
 // alts: annoAlts;
-void annoGroups::LoadGroupFile( String& group_file_name )
+void annoGroups::LoadGroupFile(String &group_file_name)
 {
 	cond_number = 0;
 	Covs = NULL;
 	// fill in in anno*
-	FILE * file = fopen(group_file_name,"r");
-	if(file==NULL)
-		error("ERROR! Cannot open group file %s.\n",group_file_name.c_str());
+	FILE *file = fopen(group_file_name, "r");
+	if (file == NULL)
+		error("ERROR! Cannot open group file %s.\n", group_file_name.c_str());
 	int idx = 0;
-	while (!feof(file)) {
+	while (!feof(file))
+	{
 		StringArray tmp;
 		String buffer;
 		buffer.ReadLine(file);
 		tmp.AddTokens(buffer, "\t ");
-		if(tmp.Length()<=1)
+		if (tmp.Length() <= 1)
 			continue;
 		annoGenes.push_back(tmp[0]);
-		bool status = addMarkerGroupToAnno( 1,tmp );
+		bool status = addMarkerGroupToAnno(1, tmp);
 		if (!status)
-			error("Abnormal marker in group file:\n  %s",buffer.c_str());
+			error("Abnormal marker in group file:\n  %s", buffer.c_str());
 		idx++;
 	}
 	fclose(file);
@@ -39,13 +40,14 @@ void annoGroups::LoadGroupFile( String& group_file_name )
 
 void annoGroups::initializeDataStorage()
 {
-	groupUs = new Vector [annoGenes.size()];
-	groupVs = new Vector [annoGenes.size()];
+	groupUs = new Vector[annoGenes.size()];
+	groupVs = new Vector[annoGenes.size()];
 	Mafs = new Vector[annoGenes.size()];
-	for(int g=0;g<annoGenes.size();g++) {
-		groupUs[g].Dimension(annoChrs[g].size(),0);
-		groupVs[g].Dimension(annoChrs[g].size(),0);
-		Mafs[g].Dimension(annoChrs[g].size(),0);
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
+		groupUs[g].Dimension(annoChrs[g].size(), 0);
+		groupVs[g].Dimension(annoChrs[g].size(), 0);
+		Mafs[g].Dimension(annoChrs[g].size(), 0);
 	}
 }
 
@@ -53,29 +55,32 @@ void annoGroups::initializeMarkerIndex()
 {
 	if (annoChrs.empty())
 		error("No valid group information!\n");
-	for(int i=0;i<annoChrs.size();i++) {
-		for(int j=0;j<annoChrs[i].size();j++) {
-			if (markerIndex.find(annoChrs[i][j])==markerIndex.end())
+	for (int i = 0; i < annoChrs.size(); i++)
+	{
+		for (int j = 0; j < annoChrs[i].size(); j++)
+		{
+			if (markerIndex.find(annoChrs[i][j]) == markerIndex.end())
 				markerIndex[annoChrs[i][j]];
 			String key = "";
 			key += annoPositions[i][j];
 			if (newFormat)
-				key += ":" +  annoRefs[i][j] + ":" + annoAlts[i][j];
-			std::pair<int,int> tmp (-1,-1);
+				key += ":" + annoRefs[i][j] + ":" + annoAlts[i][j];
+			std::pair<int, int> tmp(-1, -1);
 			markerIndex[annoChrs[i][j]][key] = tmp;
 		}
 	}
 }
 
-bool annoGroups::addMarkerGroupToAnno( int offset, StringArray& tmp )
+bool annoGroups::addMarkerGroupToAnno(int offset, StringArray &tmp)
 {
 	std::vector<String> chrs;
 	std::vector<int> positions;
 	std::vector<String> refs;
 	std::vector<String> alts;
-	for(int i=offset;i<tmp.Length();i++) {
+	for (int i = offset; i < tmp.Length(); i++)
+	{
 		StringArray tmp2;
-		tmp2.AddTokens(tmp[i],":");
+		tmp2.AddTokens(tmp[i], ":");
 		if (tmp2.Length() != 4)
 			return false;
 		chrs.push_back(tmp2[0]);
@@ -90,11 +95,10 @@ bool annoGroups::addMarkerGroupToAnno( int offset, StringArray& tmp )
 	return true;
 }
 
-
 // load Cov Files
 // store in markers***
 // only load marker line that exist in group file
-void annoGroups::LoadCovFile(String& cov_file_name,int _adjust, int _marker_col, int _cov_col, int _sampleSize)
+void annoGroups::LoadCovFile(String &cov_file_name, int _adjust, int _marker_col, int _cov_col, int _sampleSize)
 {
 	Covs = NULL;
 	adjust = _adjust;
@@ -108,56 +112,59 @@ void annoGroups::LoadCovFile(String& cov_file_name,int _adjust, int _marker_col,
 	clearLoadData();
 }
 
-void annoGroups::loadCovStrings(String& cov_file_name)
+void annoGroups::loadCovStrings(String &cov_file_name)
 {
 	// check if clear before start
 	if (!markersExp.empty())
 		error("Data structure not cleared!\n\n");
 
-	// start	
+	// start
 	SummaryFileReader covReader;
-	printf("Reading cov matrix from %s ...\n",cov_file_name.c_str());
+	printf("Reading cov matrix from %s ...\n", cov_file_name.c_str());
 	IFILE covfile_;
-	covfile_  = ifopen(cov_file_name,"r");
-	if(covfile_ == NULL)
-		error("ERROR! Cannot open file: %s! Input cov file has to be bgzipped and tabix indexed using the following command:\n bgzip yourfile.singlevar.cov.txt; tabix -c \"#\" -s 1 -b 2 -e 2 yourprefix.singlevar.cov.txt.gz\n",cov_file_name.c_str());
-//	Tabix covtabix;
-//	String tabix_name = filename + ".tbi";
-//	StatGenStatus::Status libstatus = covtabix.readIndex( tabix_name.c_str() );
+	covfile_ = ifopen(cov_file_name, "r");
+	if (covfile_ == NULL)
+		error("ERROR! Cannot open file: %s! Input cov file has to be bgzipped and tabix indexed using the following command:\n bgzip yourfile.singlevar.cov.txt; tabix -c \"#\" -s 1 -b 2 -e 2 yourprefix.singlevar.cov.txt.gz\n", cov_file_name.c_str());
+	//	Tabix covtabix;
+	//	String tabix_name = filename + ".tbi";
+	//	StatGenStatus::Status libstatus = covtabix.readIndex( tabix_name.c_str() );
 
-	int m=0;
+	int m = 0;
 	bool pass_header = 0;
 	int vec_idx = 0;
 	int genome_idx = 0;
-	while (!ifeof(covfile_)) {
+	while (!ifeof(covfile_))
+	{
 		String buffer;
 		buffer.ReadLine(covfile_);
-		if (!pass_header) {
-			if (buffer.Find("CHROM")==-1)
+		if (!pass_header)
+		{
+			if (buffer.Find("CHROM") == -1)
 				continue;
 			// now check new or old format
 			StringArray tokens;
-			tokens.AddTokens(buffer,"\t ");
-			if (tokens[2]=="MARKERS_IN_WINDOW" && tokens[3]=="COV_MATRICES")
+			tokens.AddTokens(buffer, "\t ");
+			if (tokens[2] == "MARKERS_IN_WINDOW" && tokens[3] == "COV_MATRICES")
 				newFormat = false;
-			else if (tokens[2]=="REF" && tokens[3]=="ALT" && tokens[4]=="EXP" && tokens[5]=="COV_MATRICES")
+			else if (tokens[2] == "REF" && tokens[3] == "ALT" && tokens[4] == "EXP" && tokens[5] == "COV_MATRICES")
 				newFormat = true;
 			else
-				error("Header line: %s\nCovariance matrix is neither new or old format...are you using the right file?\n\n",buffer.c_str());
+				error("Header line: %s\nCovariance matrix is neither new or old format...are you using the right file?\n\n", buffer.c_str());
 			pass_header = 1;
 			continue;
 		}
 		StringArray tokens;
-		tokens.AddTokens(buffer,"\t ");
-//		if ( RegionStatus ) {
-//			if ( tokens[1].AsInteger() > End || tokens[0] != Chr ) // out of this region or into another chromosome
-//				break;
-//		}
+		tokens.AddTokens(buffer, "\t ");
+		//		if ( RegionStatus ) {
+		//			if ( tokens[1].AsInteger() > End || tokens[0] != Chr ) // out of this region or into another chromosome
+		//				break;
+		//		}
 		m++;
 		bool flip_status = false;
 		int position_int = tokens[1].AsInteger();
 		bool in_status = isInMarkerIndex(tokens, flip_status);
-		if (!in_status) { // variant does not show up in group file or cond analysis
+		if (!in_status)
+		{ // variant does not show up in group file or cond analysis
 			genome_idx++;
 			continue;
 		}
@@ -168,15 +175,17 @@ void annoGroups::loadCovStrings(String& cov_file_name)
 			key += ":" + tokens[2] + ":" + tokens[3];
 		markerIndex[tokens[0]][key].first = genome_idx;
 		markerIndex[tokens[0]][key].second = vec_idx;
-		if (newFormat) {
+		if (newFormat)
+		{
 			int exp_col = 4;
-			int new_cov_col = cov_col+2;
+			int new_cov_col = cov_col + 2;
 			markersExp.push_back(tokens[exp_col]);
 			markersCov.push_back(tokens[new_cov_col]);
 		}
-		else { // additionally check flip_allele_map
+		else
+		{ // additionally check flip_allele_map
 			String key = tokens[0] + ":" + tokens[1];
-			if (flip_allele_map.find(key)!=flip_allele_map.end())
+			if (flip_allele_map.find(key) != flip_allele_map.end())
 				flip_status = true;
 			markersCov.push_back(tokens[cov_col]);
 		}
@@ -185,26 +194,28 @@ void annoGroups::loadCovStrings(String& cov_file_name)
 		vec_idx++;
 	}
 	ifclose(covfile_);
-	printf("done\n");		
+	printf("done\n");
 }
 
-
-bool annoGroups::isInMarkerIndex( StringArray& tokens, bool& flip_status )
+bool annoGroups::isInMarkerIndex(StringArray &tokens, bool &flip_status)
 {
 	flip_status = false;
-	if (markerIndex.find(tokens[0])==markerIndex.end())
+	if (markerIndex.find(tokens[0]) == markerIndex.end())
 		return false;
 	String key;
 	if (newFormat)
 		key = tokens[1] + ":" + tokens[2] + ":" + tokens[3];
 	else
 		key = tokens[1];
-	if (newFormat) {
-		if (markerIndex[tokens[0]].find(key)==markerIndex[tokens[0]].end())
+	if (newFormat)
+	{
+		if (markerIndex[tokens[0]].find(key) == markerIndex[tokens[0]].end())
 			return true;
-		else {
-			key = tokens[1] + ":" + tokens[3] + ":" + tokens[2]; 
-			if (markerIndex[tokens[0]].find(key)!=markerIndex[tokens[0]].end()) {
+		else
+		{
+			key = tokens[1] + ":" + tokens[3] + ":" + tokens[2];
+			if (markerIndex[tokens[0]].find(key) != markerIndex[tokens[0]].end())
+			{
 				flip_status = true;
 				return true;
 			}
@@ -212,8 +223,9 @@ bool annoGroups::isInMarkerIndex( StringArray& tokens, bool& flip_status )
 				return false;
 		}
 	}
-	else {
-		if (markerIndex[tokens[0]].find(key)!=markerIndex[tokens[0]].end())
+	else
+	{
+		if (markerIndex[tokens[0]].find(key) != markerIndex[tokens[0]].end())
 			return true;
 		else
 			return false;
@@ -223,16 +235,21 @@ bool annoGroups::isInMarkerIndex( StringArray& tokens, bool& flip_status )
 void annoGroups::setMarkersInCovs()
 {
 	// initialize
-	if (Covs==NULL)
-		Covs = new Matrix [annoGenes.size()];
+	if (Covs == NULL)
+		Covs = new Matrix[annoGenes.size()];
 
 	// extract
-	for(int g=0;g<annoGenes.size();g++) {
-		if (groupUs[g].Length()==0)
-			printf("Group %s has no variant. Do not set marker covs!\n",annoGenes[g].c_str());
-		int n = cond_number>0 ? cond_number : annoPositions[g].size();
-		Covs[g].Dimension(n,n,0);
-		for(int i=0;i<n;i++) {
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
+		int n = cond_number > 0 ? cond_number : annoPositions[g].size();
+		Covs[g].Dimension(n, n, 0);
+		if (groupUs[g].Length() == 0)
+		{
+			printf("Group %s has no variant. Do not set marker covs!\n", annoGenes[g].c_str());
+			continue;
+		}
+		for (int i = 0; i < n; i++)
+		{
 			StringArray covs;
 			int pi = annoPositions[g][i];
 			String name_i = "";
@@ -241,21 +258,22 @@ void annoGroups::setMarkersInCovs()
 				name_i += ":" + annoRefs[g][i] + ":" + annoAlts[g][i];
 			int i1 = markerIndex[annoChrs[g][i]][name_i].first;
 			int i2 = markerIndex[annoChrs[g][i]][name_i].second;
-			if (i1==-1&&i2==-1)
+			if (i1 == -1 && i2 == -1)
 				continue;
-			else if (i1==-1||i2==-1)
-				error("At marker %s:%s,gen_idx=%d,vec_idx=%d. Something is wrong!\n\n",annoChrs[g][i].c_str(),name_i.c_str(),i1,i2);
-			if (i2>=markersCov.size())
-				error("At marker %s:%s,vec_idx=%d, which is larger than cov size of %d. Something is wrong!\n\n",annoChrs[g][i].c_str(),name_i.c_str(),i2,markersCov.size());
+			else if (i1 == -1 || i2 == -1)
+				error("At marker %s:%s,gen_idx=%d,vec_idx=%d. Something is wrong!\n\n", annoChrs[g][i].c_str(), name_i.c_str(), i1, i2);
+			if (i2 >= markersCov.size())
+				error("At marker %s:%s,vec_idx=%d, which is larger than cov size of %d. Something is wrong!\n\n", annoChrs[g][i].c_str(), name_i.c_str(), i2, markersCov.size());
 			if (newFormat)
-				addNewFormatCov( markersExp[i2], markersCov[i2],covs);
+				addNewFormatCov(markersExp[i2], markersCov[i2], covs);
 			else
-				covs.AddTokens( markersCov[i2],",");
+				covs.AddTokens(markersCov[i2], ",");
 			double flip_i = 1;
 			if (markersFlip[i2])
 				flip_i = -1;
-			int nj = cond_number>0 ? marker_number : n;
-			for(int j=i;j<nj;j++) {
+			int nj = cond_number > 0 ? marker_number : n;
+			for (int j = i; j < nj; j++)
+			{
 				int pj = annoPositions[g][j];
 				String name_j = "";
 				name_j += pj;
@@ -263,21 +281,22 @@ void annoGroups::setMarkersInCovs()
 					name_j += ":" + annoRefs[g][j] + ":" + annoAlts[g][j];
 				int j1 = markerIndex[annoChrs[g][i]][name_j].first;
 				int j2 = markerIndex[annoChrs[g][i]][name_j].second;
-				if (j1==-1&&j2==-1)
+				if (j1 == -1 && j2 == -1)
 					continue;
 				double flip_j = 1;
 				if (markersFlip[j2])
 					flip_j = -1;
-				int idx = j1-i1;
-				if (idx<0)
+				int idx = j1 - i1;
+				if (idx < 0)
 					idx *= (-1);
 				double val;
-				if (idx>covs.Length())
+				if (idx > covs.Length())
 					val = 0;
-				else {
-					val = flip_i*flip_j * covs[idx].AsDouble()*sampleSize;
-					if (newFormat>0)
-						val *= pow(10,markersExp[i2]);
+				else
+				{
+					val = flip_i * flip_j * covs[idx].AsDouble() * sampleSize;
+					if (newFormat > 0)
+						val *= pow(10, markersExp[i2]);
 				}
 				Covs[g][i][j] += val;
 			}
@@ -288,95 +307,102 @@ void annoGroups::setMarkersInCovs()
 void annoGroups::clearLoadData()
 {
 	// clear after filling up each study
-	for(std::map< String, std::map<String, std::pair<int,int> > >::iterator p1=markerIndex.begin();p1!=markerIndex.end();p1++) {
-		for(std::map<String, std::pair<int,int> >::iterator p2=p1->second.begin();p2!=p1->second.end();p2++) {
+	for (std::map<String, std::map<String, std::pair<int, int>>>::iterator p1 = markerIndex.begin(); p1 != markerIndex.end(); p1++)
+	{
+		for (std::map<String, std::pair<int, int>>::iterator p2 = p1->second.begin(); p2 != p1->second.end(); p2++)
+		{
 			p2->second.first = -1;
 			p2->second.second = -1;
 		}
 	}
-	markersExp.clear(); // for new format
+	markersExp.clear();		 // for new format
 	markersInWindow.Clear(); // for old format
-	markersCov.clear();	
+	markersCov.clear();
 	markersFlip.clear();
 }
 
 // for new format
 // read marker cov then add to vector
-void annoGroups::addNewFormatCov( int mexp, String & cov_str, StringArray& covs)
+void annoGroups::addNewFormatCov(int mexp, String &cov_str, StringArray &covs)
 {
 	StringArray commas;
-	commas.AddTokens(cov_str,',');
+	commas.AddTokens(cov_str, ',');
 	// length of covs
 	int n = commas.Length();
-	if (n<1)
-		error("At line: %s:...,no index of covariance matrices! Are you using the right cov file?\n",cov_str.c_str());
+	if (n < 1)
+		error("At line: %s:...,no index of covariance matrices! Are you using the right cov file?\n", cov_str.c_str());
 	bool index_exist = 0;
 	// now check if index exists
 	StringArray first_tokens;
-	first_tokens.AddTokens(commas[0],":");
-	if (first_tokens.Length()==2)
+	first_tokens.AddTokens(commas[0], ":");
+	if (first_tokens.Length() == 2)
 		index_exist = 1;
-	else if (first_tokens.Length()!=1)
-		error("At line: %s:...,abnormal index of covariance matrices! Are you using the right cov file?\n",cov_str.c_str());
+	else if (first_tokens.Length() != 1)
+		error("At line: %s:...,abnormal index of covariance matrices! Are you using the right cov file?\n", cov_str.c_str());
 
 	// if no index, add directly
-	if (index_exist) {
+	if (index_exist)
+	{
 		int cov_len = -1;
-		for(int i=n-1;i>=0;i--) {
+		for (int i = n - 1; i >= 0; i--)
+		{
 			StringArray tokens;
-			tokens.AddTokens( commas[i],':' );
-			if (tokens.Length()==1)
+			tokens.AddTokens(commas[i], ':');
+			if (tokens.Length() == 1)
 				continue;
-			cov_len = tokens[1].AsInteger()+1;
+			cov_len = tokens[1].AsInteger() + 1;
 			break;
 		}
-		if (cov_len==-1)
-			error("At line: %s:...,no index of covariance matrices! Are you using the right cov file?\n",commas[0].c_str());
+		if (cov_len == -1)
+			error("At line: %s:...,no index of covariance matrices! Are you using the right cov file?\n", commas[0].c_str());
 		covs.Dimension(cov_len);
 		// now add
 		int last_index = 0;
-		for(int i=0;i<n;i++) {
+		for (int i = 0; i < n; i++)
+		{
 			StringArray tokens;
-			tokens.AddTokens( commas[i],':' );		
-			if (tokens.Length()>2||tokens.Length()<1)
-				error("At line: ...:%s:...,abnormal separation!\n",commas[i].c_str());
-			if (tokens.Length()==1)
+			tokens.AddTokens(commas[i], ':');
+			if (tokens.Length() > 2 || tokens.Length() < 1)
+				error("At line: ...:%s:...,abnormal separation!\n", commas[i].c_str());
+			if (tokens.Length() == 1)
 				last_index++;
 			else // tokens ==2
 				last_index = tokens[1].AsInteger();
-	//printf("covlen=%d,last_index=%d\n",cov_len,last_index);		
+			//printf("covlen=%d,last_index=%d\n",cov_len,last_index);
 			covs[last_index] = tokens[0];
 		}
 	}
-	else {
+	else
+	{
 		covs.Dimension(n);
-		for(int i=0;i<n;i++)
+		for (int i = 0; i < n; i++)
 			covs[i] = commas[i];
 	}
 }
 
 // load conditional analysis file
 // set conditional analysis markers as groups (same as group test)
-void annoGroups::LoadCondFile( String& cond_file_name )
+void annoGroups::LoadCondFile(String &cond_file_name)
 {
-	IFILE condFile = ifopen(cond_file_name,"r");
-	if(condFile==NULL)
-		error("Can not open file %s.\n",cond_file_name.c_str());
+	IFILE condFile = ifopen(cond_file_name, "r");
+	if (condFile == NULL)
+		error("Can not open file %s.\n", cond_file_name.c_str());
 	annoGenes.push_back("NA");
 	annoChrs.resize(1);
 	annoPositions.resize(1);
 	annoRefs.resize(1);
 	annoAlts.resize(1);
 	int idx = 0;
-	while (!ifeof(condFile)) {
+	while (!ifeof(condFile))
+	{
 		String buffer;
 		buffer.ReadLine(condFile);
-		if(buffer.FindChar('#')!=-1 || buffer.FindChar(':')==-1)
+		if (buffer.FindChar('#') != -1 || buffer.FindChar(':') == -1)
 			continue;
 		StringArray tmpMarker;
 		tmpMarker.AddTokens(buffer, ":");
-		if (tmpMarker.Length()!=4)
-			error("Abnormal line at conditional file:\n%s",buffer.c_str());
+		if (tmpMarker.Length() != 4)
+			error("Abnormal line at conditional file:\n%s", buffer.c_str());
 		annoChrs[0].push_back(tmpMarker[0]);
 		annoPositions[0].push_back(tmpMarker[1]);
 		annoRefs[0].push_back(tmpMarker[2]);
@@ -389,17 +415,17 @@ void annoGroups::LoadCondFile( String& cond_file_name )
 	initializeDataStorage();
 }
 
-void annoGroups::LoadSingleMarker(int g,String& chr,int position,String& ref,String& alt)
+void annoGroups::LoadSingleMarker(int g, String &chr, int position, String &ref, String &alt)
 {
-	if (annoGenes.size()<=g)
-		error("[annoGroups::LoadSingleMarker] annoGenes size = %d but g = %d\n\n",annoGenes.size(),g);
+	if (annoGenes.size() <= g)
+		error("[annoGroups::LoadSingleMarker] annoGenes size = %d but g = %d\n\n", annoGenes.size(), g);
 	annoChrs[g].push_back(chr);
 	annoPositions[g].push_back(position);
 	annoRefs[g].push_back(ref);
 	annoAlts[g].push_back(alt);
 }
 
-void annoGroups::FlipAllele(int g,int i)
+void annoGroups::FlipAllele(int g, int i)
 {
 	String tmp = annoRefs[g][i];
 	annoRefs[g][i] = annoAlts[g][i];
@@ -424,7 +450,6 @@ void annoGroups::SetMaf(int g, int i, double maf)
 	Mafs[g][i] = maf;
 }
 
-
 String annoGroups::GetMarkerName(int g, int i)
 {
 	String marker = annoChrs[g][i] + ":" + annoPositions[g][i] + ":" + annoRefs[g][i] + ":" + annoAlts[g][i];
@@ -441,7 +466,7 @@ int annoGroups::GetGeneNumber()
 	return annoGenes.size();
 }
 
-String annoGroups::GetChr(int g,int i)
+String annoGroups::GetChr(int g, int i)
 {
 	return annoChrs[g][i];
 }
@@ -451,57 +476,57 @@ int annoGroups::GetPosition(int g, int i)
 	return annoPositions[g][i];
 }
 
-String annoGroups::GetRef(int g,int i)
+String annoGroups::GetRef(int g, int i)
 {
 	return annoRefs[g][i];
 }
 
-String annoGroups::GetAlt(int g,int i)
+String annoGroups::GetAlt(int g, int i)
 {
 	return annoAlts[g][i];
 }
 
-double annoGroups::GetOneCov(int g,int m1,int m2)
+double annoGroups::GetOneCov(int g, int m1, int m2)
 {
 	return Covs[g][m1][m2];
 }
 
-void annoGroups::UpdateCovValue(double new_val,int g,int m1,int m2)
+void annoGroups::UpdateCovValue(double new_val, int g, int m1, int m2)
 {
 	Covs[g][m1][m2] = new_val;
 }
 
 // export matrix* cov of a single group
-void annoGroups::ExportCov( Matrix& cov, int g )
+void annoGroups::ExportCov(Matrix &cov, int g)
 {
 	int n = Covs[g].rows;
 	int m = Covs[g].cols;
-	cov.Dimension(n,m);
-	for(int i=0;i<n;i++)
-		for(int j=0;j<m;j++)
+	cov.Dimension(n, m);
+	for (int i = 0; i < n; i++)
+		for (int j = 0; j < m; j++)
 			cov[i][j] = Covs[g][i][j];
 }
-
 
 void annoGroups::MakeFullMatrix()
 {
 	// make half matrix as full matrix
-	if (is_cov_half_matrix&&cond_number==0) {
-		for(int g=0;g<annoGenes.size();g++) {
-			for(int i=0;i<Covs[g].rows;i++)
-				for(int j=i;j<Covs[g].rows;j++)
-					 Covs[g][j][i] = Covs[g][i][j];
+	if (is_cov_half_matrix && cond_number == 0)
+	{
+		for (int g = 0; g < annoGenes.size(); g++)
+		{
+			for (int i = 0; i < Covs[g].rows; i++)
+				for (int j = i; j < Covs[g].rows; j++)
+					Covs[g][j][i] = Covs[g][i][j];
 		}
 	}
 	is_cov_half_matrix = false;
 }
 
-
 // group test part
-void annoGroups::GroupTest(String& method, String& prefix)
+void annoGroups::GroupTest(String &method, String &prefix)
 {
 	runBurdenTest(method);
-/*	if (method=="VT")
+	/*	if (method=="VT")
 		runVt();
 	else if (method=="SKAT")
 		runSKAT();
@@ -509,10 +534,11 @@ void annoGroups::GroupTest(String& method, String& prefix)
 		runBurdenTest(method);
 	}*/
 	String filename = prefix + ".meta." + method + ".results";
-	IFILE f = ifopen(filename,"w");
-	ifprintf(f,"#GROUP\tCOUNT\tVARIANTS\tAVR_MAF\tMIN_MAF\tMAX_MAF\tEFF_SIZE\tP_VALUE\n");
-	for(int g=0;g<annoGenes.size();g++) {
-		printGroupResult( g,f );	
+	IFILE f = ifopen(filename, "w");
+	ifprintf(f, "#GROUP\tCOUNT\tVARIANTS\tAVR_MAF\tMIN_MAF\tMAX_MAF\tEFF_SIZE\tP_VALUE\n");
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
+		printGroupResult(g, f);
 	}
 	ifclose(f);
 	printf("  done.\n\n");
@@ -522,19 +548,24 @@ void annoGroups::GroupTest(String& method, String& prefix)
 void annoGroups::RemoveMissingData()
 {
 	// check missingness of genes and single variants
-	for(int g=0;g<annoGenes.size();g++) {
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
 		std::vector<int> valid;
-		for(int i=0;i<groupVs[g].Length();i++) {
-			if (groupVs[g][i]!=0)
+		for (int i = 0; i < groupVs[g].Length(); i++)
+		{
+			if (groupVs[g][i] != 0)
 				valid.push_back(i);
 		}
-		if (valid.empty()) {
+		if (valid.empty())
+		{
 			groupVs[g].Dimension(0);
 			continue;
 		}
-		if (valid.size()<groupVs[g].Length()) {
+		if (valid.size() < groupVs[g].Length())
+		{
 			// remove only singles
-			for(int v=0;v<valid.size();v++) {
+			for (int v = 0; v < valid.size(); v++)
+			{
 				int old_idx = valid[v];
 				annoChrs[g][v] = annoChrs[g][old_idx];
 				annoPositions[g][v] = annoPositions[g][old_idx];
@@ -544,7 +575,7 @@ void annoGroups::RemoveMissingData()
 				groupVs[g][v] = groupVs[g][old_idx];
 				Mafs[g][v] = Mafs[g][old_idx];
 				Matrix tmp = Covs[g];
-				for(int a=0;a<valid.size();a++) // do it per row
+				for (int a = 0; a < valid.size(); a++) // do it per row
 					Covs[g][v][a] = tmp[old_idx][valid[a]];
 			}
 			annoChrs[g].resize(valid.size());
@@ -554,34 +585,37 @@ void annoGroups::RemoveMissingData()
 			groupUs[g].Dimension(valid.size());
 			groupVs[g].Dimension(valid.size());
 			Mafs[g].Dimension(valid.size());
-			Covs[g].Dimension(valid.size(),valid.size());
+			Covs[g].Dimension(valid.size(), valid.size());
 		}
 	}
 
 	// search for empty elements
 	std::vector<int> valid;
-	for(int g=0;g<annoGenes.size();g++) {
-		if (groupVs[g].Length()!=0)
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
+		if (groupVs[g].Length() != 0)
 			valid.push_back(g);
 		else
-			printf("Warning: Gene #%d %s with no available MAF is skipped for group test!\n",g+1,annoGenes[g].c_str());
+			printf("Warning: Gene #%d %s with no available MAF is skipped for group test!\n", g + 1, annoGenes[g].c_str());
 	}
-	if (valid.size()==annoGenes.size()) { // no missing element
+	if (valid.size() == annoGenes.size())
+	{ // no missing element
 		// additional initialization
-		metaUs.Dimension(annoGenes.size(),0);
-		metaVs.Dimension(annoGenes.size(),0);
+		metaUs.Dimension(annoGenes.size(), 0);
+		metaVs.Dimension(annoGenes.size(), 0);
 		return;
 	}
 	// delete element if it is empty
-	Matrix* p = Covs;
-	Vector* pu = groupUs;
-	Vector* pv = groupVs;
-	Vector* pmaf = Mafs;
-	groupUs = new Vector [valid.size()];
-	groupVs = new Vector [valid.size()];
-	Mafs = new Vector [valid.size()];
-	Covs = new Matrix [valid.size()];
-	for(int i=0;i<valid.size();i++) {
+	Matrix *p = Covs;
+	Vector *pu = groupUs;
+	Vector *pv = groupVs;
+	Vector *pmaf = Mafs;
+	groupUs = new Vector[valid.size()];
+	groupVs = new Vector[valid.size()];
+	Mafs = new Vector[valid.size()];
+	Covs = new Matrix[valid.size()];
+	for (int i = 0; i < valid.size(); i++)
+	{
 		int old_idx = valid[i];
 		annoGenes[i] = annoGenes[old_idx];
 		annoChrs[i] = annoChrs[old_idx];
@@ -601,106 +635,111 @@ void annoGroups::RemoveMissingData()
 	annoPositions.resize(valid.size());
 	annoRefs.resize(valid.size());
 	annoAlts.resize(valid.size());
-	delete [] pu;
-	delete [] pv;
-	delete [] pmaf;
-	delete [] p;
+	delete[] pu;
+	delete[] pv;
+	delete[] pmaf;
+	delete[] p;
 
 	// additional initialization
-	metaUs.Dimension(annoGenes.size(),0);
-	metaVs.Dimension(annoGenes.size(),0);
+	metaUs.Dimension(annoGenes.size(), 0);
+	metaVs.Dimension(annoGenes.size(), 0);
 }
 
-void annoGroups::setWeight(String& method, int g)
+void annoGroups::setWeight(String &method, int g)
 {
 	Weight.Dimension(groupUs[g].Length());
-	if(method=="burden")// equal weight
-		for(int w=0;w<Weight.Length();w++)
-				Weight[w] = 1.0;
-	else if(method=="MB") // weight by 1/sqrt( maf*(1-maf) )
-		for(int w=0;w<Weight.Length();w++)
-			Weight[w] = sqrt(Mafs[g][w]*(1.0-Mafs[g][w]));
-	else if (method=="MAB") {
-		for(int w=0;w<Weight.Length();w++)
+	if (method == "burden") // equal weight
+		for (int w = 0; w < Weight.Length(); w++)
+			Weight[w] = 1.0;
+	else if (method == "MB") // weight by 1/sqrt( maf*(1-maf) )
+		for (int w = 0; w < Weight.Length(); w++)
+			Weight[w] = sqrt(Mafs[g][w] * (1.0 - Mafs[g][w]));
+	else if (method == "MAB")
+	{
+		for (int w = 0; w < Weight.Length(); w++)
 			Weight[w] = Mafs[g][w];
 	}
-	else if (method=="BBeta") { // truncated beta
+	else if (method == "BBeta")
+	{ // truncated beta
 		double alpha = 0.5;
 		double beta = 0.5;
 		double f0 = 2 / sampleSize; // truncate at 4 alleles
-		for(int w=0;w<Weight.Length();w++) {
+		for (int w = 0; w < Weight.Length(); w++)
+		{
 			double xmaf = Mafs[g][w];
-			if (xmaf>0 && xmaf<f0)
+			if (xmaf > 0 && xmaf < f0)
 				xmaf = f0;
-			if (xmaf>0 && xmaf>(1-f0))
-				xmaf = 1-f0;
-			double beta_density = GetBetaDensity(alpha,beta,xmaf);
-			Weight[w] = (beta_density*beta_density);
+			if (xmaf > 0 && xmaf > (1 - f0))
+				xmaf = 1 - f0;
+			double beta_density = GetBetaDensity(alpha, beta, xmaf);
+			Weight[w] = (beta_density * beta_density);
 		}
 	}
 	else
-		error("Invalid weight %s!\n",method.c_str());
+		error("Invalid weight %s!\n", method.c_str());
 	// for burden test, need to 1/w
-	for(int w=0;w<Weight.Length();w++)
-		Weight[w] = 1/Weight[w];
+	for (int w = 0; w < Weight.Length(); w++)
+		Weight[w] = 1 / Weight[w];
 }
 
-void annoGroups::runBurdenTest(String& method)
+void annoGroups::runBurdenTest(String &method)
 {
-	for(int g=0;g<annoGenes.size();g++) {
-		if (Mafs[g].Length()==0)
-			error("At #%d gene, no available MAF. Something is wrong!\n",g+1);
+	for (int g = 0; g < annoGenes.size(); g++)
+	{
+		if (Mafs[g].Length() == 0)
+			error("At #%d gene, no available MAF. Something is wrong!\n", g + 1);
 
-		setWeight(method,g);
-		
-		double numerator  = Weight.InnerProduct(groupUs[g]);
+		setWeight(method, g);
+
+		double numerator = Weight.InnerProduct(groupUs[g]);
 		Vector tmp;
 		tmp.Dimension(annoChrs[g].size());
-		
-		for(int i=0;i<tmp.Length();i++)
+
+		for (int i = 0; i < tmp.Length(); i++)
 			tmp[i] = Weight.InnerProduct(Covs[g][i]);
 		double denominator = tmp.InnerProduct(Weight);
 
 		metaUs[g] = numerator;
 		metaVs[g] = denominator;
-	}		
+	}
 }
 
-
 // print one line of result
-void annoGroups::printGroupResult(int g, IFILE& f)
+void annoGroups::printGroupResult(int g, IFILE &f)
 {
 	ifprintf(f, "%s\t%d\t", annoGenes[g].c_str(), annoChrs[g].size());
-	for(int i=0;i<annoChrs[g].size();i++) {
-		if (i>0)
-			ifprintf(f,",");
-		ifprintf(f,"%s:%d:%s:%s", annoChrs[g][i].c_str(), annoPositions[g][i],annoRefs[g][i].c_str(), annoAlts[g][i].c_str());
+	for (int i = 0; i < annoChrs[g].size(); i++)
+	{
+		if (i > 0)
+			ifprintf(f, ",");
+		ifprintf(f, "%s:%d:%s:%s", annoChrs[g][i].c_str(), annoPositions[g][i], annoRefs[g][i].c_str(), annoAlts[g][i].c_str());
 	}
 	double average_af = Mafs[g].Average();
 	double min_af = Mafs[g].Min();
 	double max_af = Mafs[g].Max();
-	ifprintf(f,"\t%g\t%g\t%g", average_af, min_af, max_af);
+	ifprintf(f, "\t%g\t%g\t%g", average_af, min_af, max_af);
 
-	if (metaVs[g]==0.0) {
-		ifprintf(f,"\tNA\tNA\tNA\n");
+	if (metaVs[g] == 0.0)
+	{
+		ifprintf(f, "\tNA\tNA\tNA\n");
 		return;
 	}
 
-	double chisq = metaUs[g]*metaUs[g]/metaVs[g];
-	double pvalue = pchisq(chisq,1,0,0);
-	double effSize = metaUs[g]/metaVs[g];
+	double chisq = metaUs[g] * metaUs[g] / metaVs[g];
+	double pvalue = pchisq(chisq, 1, 0, 0);
+	double effSize = metaUs[g] / metaVs[g];
 
-	bool disect=false;
-	while(pvalue==0.0) {
-		disect=true;
+	bool disect = false;
+	while (pvalue == 0.0)
+	{
+		disect = true;
 		chisq *= 0.999;
-		pvalue = pchisq(chisq,1,0,0);
+		pvalue = pchisq(chisq, 1, 0, 0);
 	}
 
-	ifprintf(f,"\t%g\t%g", effSize, disect?"<":"",pvalue);
-	ifprintf(f,"\n");
+	ifprintf(f, "\t%g\t%g", effSize, disect ? "<" : "", pvalue);
+	ifprintf(f, "\n");
 }
-
 
 /* variant threshold test
 void annoGroups::runVt()

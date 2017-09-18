@@ -1,4 +1,4 @@
-EXE=raremetalTest
+EXE=raremetal
 TOOLBASE = af1KG annoGroups condAnalysis Meta MetaUtility WritePDF SummaryFileReader metaElement
 SRCONLY = Main.cpp 
 #SRCONLY = test.cpp
