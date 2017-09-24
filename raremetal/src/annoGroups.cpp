@@ -98,21 +98,21 @@ bool annoGroups::addMarkerGroupToAnno(int offset, StringArray &tmp)
 // load Cov Files
 // store in markers***
 // only load marker line that exist in group file
-void annoGroups::LoadCovFile(String &cov_file_name, int _adjust, int _marker_col, int _cov_col, int _sampleSize)
+void annoGroups::LoadCovFile(String &cov_file_name, int _adjust, int _marker_col, int _cov_col, int _sampleSize, bool load_all)
 {
 	Covs = NULL;
 	adjust = _adjust;
 	marker_col = _marker_col;
 	cov_col = _cov_col;
 	sampleSize = _sampleSize;
-	loadCovStrings(cov_file_name);
+	loadCovStrings(cov_file_name, load_all);
 	// now set marker positions
 	setMarkersInCovs();
 	// clear & additional steps
 	clearLoadData();
 }
 
-void annoGroups::loadCovStrings(String &cov_file_name)
+void annoGroups::loadCovStrings(String &cov_file_name, bool load_all)
 {
 	// check if clear before start
 	if (!markersExp.empty())
@@ -162,17 +162,31 @@ void annoGroups::loadCovStrings(String &cov_file_name)
 		m++;
 		bool flip_status = false;
 		int position_int = tokens[1].AsInteger();
-		bool in_status = isInMarkerIndex(tokens, flip_status);
-		if (!in_status)
-		{ // variant does not show up in group file or cond analysis
-			genome_idx++;
-			continue;
-		}
-		// now add
 		removeChrFromString(tokens[0]);
 		String key = tokens[1];
 		if (newFormat)
 			key += ":" + tokens[2] + ":" + tokens[3];
+		if (load_all)
+		{
+			if (markerIndex.find(tokens[0]) == markerIndex.end())
+			{
+				markerIndex[tokens[0]];
+			}
+			if (markerIndex[tokens[0]].find(key) == markerIndex[tokens[0]].end())
+			{
+				std::pair<int, int> tmp(-1, -1);
+				markerIndex[tokens[0]][key] = tmp;
+			}
+		}
+		else
+		{
+			bool in_status = isInMarkerIndex(tokens, flip_status);
+			if (!in_status)
+			{ // variant does not show up in group file or cond analysis
+				genome_idx++;
+				continue;
+			}
+		}
 		markerIndex[tokens[0]][key].first = genome_idx;
 		markerIndex[tokens[0]][key].second = vec_idx;
 		if (newFormat)
